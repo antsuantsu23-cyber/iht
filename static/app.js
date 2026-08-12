@@ -262,4 +262,43 @@
       zone.focus();
     }
   });
+
+
+  const themeMetaColors = {pink: '#a66d78', white: '#ffffff', black: '#0d0d0f'};
+  const applyTheme = (theme) => {
+    if (!['pink', 'white', 'black'].includes(theme)) return;
+    document.body.dataset.theme = theme;
+    const meta = document.getElementById('theme-color-meta');
+    if (meta) meta.setAttribute('content', themeMetaColors[theme]);
+    document.querySelectorAll('[data-theme-picker]').forEach((picker) => { picker.value = theme; });
+    document.querySelectorAll('[data-theme-card]').forEach((card) => card.classList.toggle('selected', card.dataset.themeCard === theme));
+  };
+
+  const saveTheme = async (theme) => {
+    const csrf = document.body.dataset.csrf || '';
+    applyTheme(theme);
+    const data = new FormData();
+    data.append('theme', theme);
+    data.append('csrf_token', csrf);
+    try {
+      const response = await fetch('/account/theme', {
+        method: 'POST', body: data, credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      window.alert('Theme could not be saved. Refresh the page and try again.');
+    }
+  };
+
+  document.querySelectorAll('[data-theme-picker]').forEach((picker) => {
+    picker.addEventListener('change', () => saveTheme(picker.value));
+  });
+  document.querySelectorAll('[data-theme-card]').forEach((card) => {
+    card.addEventListener('click', () => saveTheme(card.dataset.themeCard));
+  });
+  applyTheme(document.body.dataset.theme || 'pink');
+
+  document.querySelectorAll('[data-print-report]').forEach((button) => {
+    button.addEventListener('click', () => window.print());
+  });
 })();
