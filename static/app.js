@@ -34,6 +34,49 @@
     setInstallVisible(false);
   });
 
+
+  // Collapsible navigation. Desktop remembers the user's preference locally;
+  // mobile uses the same button as an overlay menu without squeezing the table.
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const applySidebarState = () => {
+    const mobile = window.matchMedia('(max-width: 760px)').matches;
+    if (mobile) {
+      document.body.classList.remove('sidebar-hidden');
+      document.body.classList.remove('sidebar-mobile-open');
+      sidebarToggle?.setAttribute('aria-expanded', 'false');
+    } else {
+      document.body.classList.remove('sidebar-mobile-open');
+      const hidden = localStorage.getItem('feedbackHubSidebarHidden') === '1';
+      document.body.classList.toggle('sidebar-hidden', hidden);
+      sidebarToggle?.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    }
+  };
+  sidebarToggle?.addEventListener('click', () => {
+    const mobile = window.matchMedia('(max-width: 760px)').matches;
+    if (mobile) {
+      const open = document.body.classList.toggle('sidebar-mobile-open');
+      sidebarToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    } else {
+      const hidden = document.body.classList.toggle('sidebar-hidden');
+      localStorage.setItem('feedbackHubSidebarHidden', hidden ? '1' : '0');
+      sidebarToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    }
+  });
+  document.querySelectorAll('.sidebar .nav-link').forEach((link) => {
+    link.addEventListener('click', () => {
+      if (window.matchMedia('(max-width: 760px)').matches) {
+        document.body.classList.remove('sidebar-mobile-open');
+        sidebarToggle?.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
+  let sidebarResizeTimer = null;
+  window.addEventListener('resize', () => {
+    window.clearTimeout(sidebarResizeTimer);
+    sidebarResizeTimer = window.setTimeout(applySidebarState, 120);
+  });
+  applySidebarState();
+
   const updateSelectTone = (select) => {
     if (!select) return;
     if (select.name === 'status') {
