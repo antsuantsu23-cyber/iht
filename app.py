@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 import os
 import re
 import secrets
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Form, Request, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -102,6 +104,7 @@ TYPE_CHOICES = [
 ]
 AREAS = ["General", "Tournament", "Hotel", "Rooms", "Roster", "Payments", "Refunds", "CSR", "Sales", "Compliance", "UI / Navigation", "Notifications", "Other"]
 ROLE_CHOICES = ["admin", "manager", "team_member", "viewer"]
+THEME_CHOICES = [("pink", "Nude Pink"), ("white", "White"), ("black", "Black")]
 
 
 def db():
@@ -110,6 +113,49 @@ def db():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
     return conn
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM team_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str, user_id: int) -> None:
+    conn.execute(
+        """INSERT INTO team_settings(key,value,updated_by,updated_at) VALUES(?,?,?,?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
+        (key, value, user_id, now()),
+    )
+
+
+def safe_int(value: str | int | None, default: int = 0) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return default
+
+
+def conic_gradient(items: list[tuple[int, str]]) -> str:
+    total = sum(max(0, count) for count, _ in items)
+    if total <= 0:
+        return "conic-gradient(var(--chart-empty) 0 100%)"
+    parts = []
+    cursor = 0.0
+    for count, css_var in items:
+        if count <= 0:
+            continue
+        end = cursor + (count / total * 100)
+        parts.append(f"var({css_var}) {cursor:.2f}% {end:.2f}%")
+        cursor = end
+    if cursor < 100:
+        parts.append(f"var(--chart-empty) {cursor:.2f}% 100%")
+    return "conic-gradient(" + ", ".join(parts) + ")"
 
 
 def now():
@@ -180,9 +226,10 @@ def bootstrap_production_admin(conn: sqlite3.Connection) -> None:
     existing = conn.execute("SELECT id FROM users WHERE email=?", (admin_email,)).fetchone()
     seeded = conn.execute("SELECT id FROM users WHERE email='robert@example.com'").fetchone()
     if existing:
+        # Preserve a password the administrator may have changed inside the app.
         conn.execute(
-            "UPDATE users SET name=?, password_hash=?, role='admin', active=1 WHERE id=?",
-            (admin_name, hash_password(admin_password), existing["id"]),
+            "UPDATE users SET name=?, role='admin', active=1 WHERE id=?",
+            (admin_name, existing["id"]),
         )
         admin_id = existing["id"]
     elif seeded:
@@ -292,8 +339,20 @@ def init_db():
             FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS team_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(updated_by) REFERENCES users(id)
+        );
         """
     )
+    ensure_column(conn, "users", "theme", "TEXT NOT NULL DEFAULT 'pink'")
+    conn.execute("INSERT OR IGNORE INTO team_settings(key,value,updated_by,updated_at) VALUES('daily_resolved_target','0',NULL,?)", (now(),))
+    conn.execute("INSERT OR IGNORE INTO team_settings(key,value,updated_by,updated_at) VALUES('weekly_resolved_target','0',NULL,?)", (now(),))
+    conn.commit()
 
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         users = [
@@ -495,6 +554,7 @@ def template_context(request: Request, **kwargs):
         "priority_choices": PRIORITY_CHOICES,
         "type_choices": TYPE_CHOICES,
         "areas": AREAS,
+        "theme_choices": THEME_CHOICES,
         "can_manage": can_manage(user),
         "csrf_token": csrf_token(request),
         "is_production": IS_PRODUCTION,
@@ -542,10 +602,48 @@ def dashboard(request: Request):
     user = require_user(request)
     conn = db()
     stats = {}
-    for key in ["open", "in_progress", "needs_review", "resolved", "closed"]:
+    for key in ["open", "assigned", "in_progress", "needs_review", "resolved", "closed"]:
         stats[key] = conn.execute("SELECT COUNT(*) FROM tickets WHERE status=?", (key,)).fetchone()[0]
     stats["blocker"] = conn.execute("SELECT COUNT(*) FROM tickets WHERE priority='blocker' AND status NOT IN ('resolved','closed')").fetchone()[0]
+    stats["suggestion"] = conn.execute("SELECT COUNT(*) FROM tickets WHERE ticket_type='suggestion' AND status NOT IN ('resolved','closed')").fetchone()[0]
     stats["unassigned"] = conn.execute("SELECT COUNT(*) FROM tickets WHERE assigned_to IS NULL AND status NOT IN ('resolved','closed')").fetchone()[0]
+    stats["total"] = conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
+
+    type_counts = {key: conn.execute("SELECT COUNT(*) FROM tickets WHERE ticket_type=?", (key,)).fetchone()[0] for key, _ in TYPE_CHOICES}
+    active_priority_counts = {key: conn.execute("SELECT COUNT(*) FROM tickets WHERE priority=? AND status NOT IN ('resolved','closed')", (key,)).fetchone()[0] for key, _ in PRIORITY_CHOICES}
+    status_chart = conic_gradient([
+        (stats["open"], "--chart-open"),
+        (stats["assigned"], "--chart-assigned"),
+        (stats["in_progress"], "--chart-progress"),
+        (stats["needs_review"], "--chart-review"),
+        (stats["resolved"], "--chart-resolved"),
+        (stats["closed"], "--chart-closed"),
+    ])
+    type_chart = conic_gradient([
+        (type_counts.get("bug", 0), "--chart-bug"),
+        (type_counts.get("suggestion", 0), "--chart-suggestion"),
+        (type_counts.get("task", 0), "--chart-task"),
+        (type_counts.get("improvement", 0), "--chart-improvement"),
+    ])
+
+    now_dt = datetime.now()
+    today = now_dt.strftime("%Y-%m-%d")
+    week_start_dt = now_dt - timedelta(days=now_dt.weekday())
+    week_start = week_start_dt.strftime("%Y-%m-%d")
+    week_end = (week_start_dt + timedelta(days=6)).strftime("%Y-%m-%d")
+    today_resolved = conn.execute("SELECT COUNT(*) FROM tickets WHERE resolved_at IS NOT NULL AND substr(resolved_at,1,10)=?", (today,)).fetchone()[0]
+    week_resolved = conn.execute("SELECT COUNT(*) FROM tickets WHERE resolved_at IS NOT NULL AND substr(resolved_at,1,10) BETWEEN ? AND ?", (week_start, week_end)).fetchone()[0]
+    daily_target = safe_int(get_setting(conn, "daily_resolved_target", "0"))
+    weekly_target = safe_int(get_setting(conn, "weekly_resolved_target", "0"))
+    goals = {
+        "today_resolved": today_resolved,
+        "week_resolved": week_resolved,
+        "daily_target": daily_target,
+        "weekly_target": weekly_target,
+        "daily_percent": min(100, round(today_resolved / daily_target * 100)) if daily_target else 0,
+        "weekly_percent": min(100, round(week_resolved / weekly_target * 100)) if weekly_target else 0,
+    }
+
     my_tasks = conn.execute("""
         SELECT t.*, u.name assignee_name FROM tickets t LEFT JOIN users u ON t.assigned_to=u.id
         WHERE t.assigned_to=? AND t.status NOT IN ('resolved','closed')
@@ -561,11 +659,16 @@ def dashboard(request: Request):
         ORDER BY a.id DESC LIMIT 10
     """).fetchall()
     conn.close()
-    return templates.TemplateResponse("dashboard.html", template_context(request, stats=stats, my_tasks=my_tasks, workload=workload, recent=recent))
+    return templates.TemplateResponse(
+        "dashboard.html",
+        template_context(request, stats=stats, my_tasks=my_tasks, workload=workload, recent=recent,
+                         type_counts=type_counts, active_priority_counts=active_priority_counts,
+                         status_chart=status_chart, type_chart=type_chart, goals=goals),
+    )
 
 
 @app.get("/tickets", response_class=HTMLResponse)
-def ticket_list(request: Request, q: str = "", status: str = "", priority: str = "", assignee: str = "", area: str = "", view: str = "all"):
+def ticket_list(request: Request, q: str = "", status: str = "", priority: str = "", assignee: str = "", area: str = "", ticket_type: str = "", view: str = "all"):
     user = require_user(request)
     conn = db()
     where, params = ["1=1"], []
@@ -580,13 +683,15 @@ def ticket_list(request: Request, q: str = "", status: str = "", priority: str =
         where.append("t.assigned_to=?"); params.append(assignee)
     if area:
         where.append("t.area=?"); params.append(area)
+    if ticket_type:
+        where.append("t.ticket_type=?"); params.append(ticket_type)
     if view == "mine":
         where.append("t.assigned_to=?"); params.append(user["id"])
     elif view == "completed":
         where.append("t.status IN ('resolved','closed')")
     elif view == "active":
         where.append("t.status NOT IN ('resolved','closed')")
-    tickets = conn.execute(f"""
+    ticket_rows = conn.execute(f"""
         SELECT t.*, u.name assignee_name, s.name submitter_name,
                (SELECT COUNT(*) FROM attachments a WHERE a.ticket_id=t.id) attachment_count,
                (SELECT COUNT(*) FROM comments c WHERE c.ticket_id=t.id) comment_count
@@ -594,9 +699,26 @@ def ticket_list(request: Request, q: str = "", status: str = "", priority: str =
         WHERE {' AND '.join(where)}
         ORDER BY CASE t.priority WHEN 'blocker' THEN 1 WHEN 'critical' THEN 2 WHEN 'high' THEN 3 WHEN 'medium' THEN 4 ELSE 5 END, t.updated_at DESC
     """, params).fetchall()
+    tickets = [dict(row) for row in ticket_rows]
+    ticket_ids = [t["id"] for t in tickets]
+    links_by_ticket, attachments_by_ticket, comments_by_ticket = {}, {}, {}
+    if ticket_ids:
+        placeholders = ",".join("?" for _ in ticket_ids)
+        for row in conn.execute(f"SELECT id,ticket_id,label,url FROM links WHERE ticket_id IN ({placeholders}) ORDER BY id", ticket_ids).fetchall():
+            links_by_ticket.setdefault(row["ticket_id"], []).append(dict(row))
+        for row in conn.execute(f"SELECT id,ticket_id,filename,content_type FROM attachments WHERE ticket_id IN ({placeholders}) ORDER BY id DESC", ticket_ids).fetchall():
+            attachments_by_ticket.setdefault(row["ticket_id"], []).append(dict(row))
+        for row in conn.execute(f"""SELECT c.id,c.ticket_id,c.body,c.created_at,u.name user_name
+            FROM comments c JOIN users u ON c.user_id=u.id
+            WHERE c.ticket_id IN ({placeholders}) ORDER BY c.id""", ticket_ids).fetchall():
+            comments_by_ticket.setdefault(row["ticket_id"], []).append(dict(row))
+    for ticket in tickets:
+        ticket["links"] = links_by_ticket.get(ticket["id"], [])
+        ticket["attachments"] = attachments_by_ticket.get(ticket["id"], [])
+        ticket["comments"] = comments_by_ticket.get(ticket["id"], [])
     users = conn.execute("SELECT id,name FROM users WHERE active=1 ORDER BY name").fetchall()
     conn.close()
-    return templates.TemplateResponse("tickets.html", template_context(request, tickets=tickets, users=users, filters={"q":q,"status":status,"priority":priority,"assignee":assignee,"area":area,"view":view}))
+    return templates.TemplateResponse("tickets.html", template_context(request, tickets=tickets, users=users, filters={"q":q,"status":status,"priority":priority,"assignee":assignee,"area":area,"ticket_type":ticket_type,"view":view}))
 
 
 @app.get("/tickets/new", response_class=HTMLResponse)
@@ -634,7 +756,8 @@ def create_ticket(
     save_uploads(conn, tid, user["id"], files)
     log_activity(conn, tid, user["id"], "Created ticket", title.strip())
     conn.commit(); conn.close()
-    return RedirectResponse(f"/tickets/{tid}", status_code=303)
+    destination = "completed" if status in {"resolved", "closed"} else "active"
+    return RedirectResponse(f"/tickets?view={destination}#ticket-{tid}", status_code=303)
 
 
 ALLOWED_UPLOAD_EXTENSIONS = {
@@ -725,44 +848,78 @@ def edit_ticket(
     return RedirectResponse(f"/tickets/{ticket_id}", status_code=303)
 
 
+def safe_ticket_return(return_to: str, fallback: str) -> str:
+    value = (return_to or "").strip()
+    if value.startswith("/tickets") and not value.startswith("//"):
+        return value
+    return fallback
+
+
 @app.post("/tickets/{ticket_id}/quick-update")
-def quick_update(request: Request, ticket_id: int, status: str = Form(""), assigned_to: str = Form(""), priority: str = Form(""), csrf_token: str = Form(...)):
+def quick_update(
+    request: Request, ticket_id: int,
+    status: str = Form(""), assigned_to: str = Form(""), priority: str = Form(""),
+    ticket_type: str = Form(""), area: str = Form(""), environment: str = Form(""),
+    return_to: str = Form(""), csrf_token: str = Form(...),
+):
     check_csrf(request, csrf_token)
     user = require_user(request)
     if user["role"] == "viewer": raise HTTPException(403)
+    valid_statuses = {v for v, _ in STATUS_CHOICES}
+    valid_priorities = {v for v, _ in PRIORITY_CHOICES}
+    valid_types = {v for v, _ in TYPE_CHOICES}
+    if status and status not in valid_statuses: raise HTTPException(400, "Invalid status")
+    if priority and priority not in valid_priorities: raise HTTPException(400, "Invalid priority")
+    if ticket_type and ticket_type not in valid_types: raise HTTPException(400, "Invalid ticket type")
+    if area and area not in AREAS: raise HTTPException(400, "Invalid feature area")
+
     conn = db(); old=conn.execute("SELECT * FROM tickets WHERE id=?",(ticket_id,)).fetchone()
     if not old: conn.close(); raise HTTPException(404)
     updates=[]; vals=[]; details=[]
     if status and status != old["status"]:
         updates.append("status=?"); vals.append(status); details.append(f"Status: {old['status']} → {status}")
-        if status in {"resolved","closed"}: updates.append("resolved_at=?"); vals.append(now())
-        else: updates.append("resolved_at=NULL")
+        if status in {"resolved","closed"}:
+            if not old["resolved_at"]:
+                updates.append("resolved_at=?"); vals.append(now())
+        else:
+            updates.append("resolved_at=NULL")
     if priority and priority != old["priority"]:
         updates.append("priority=?"); vals.append(priority); details.append(f"Priority: {old['priority']} → {priority}")
     if assigned_to != "":
         new_assignee = int(assigned_to) if assigned_to != "0" else None
+        if new_assignee is not None and not conn.execute("SELECT 1 FROM users WHERE id=? AND active=1", (new_assignee,)).fetchone():
+            conn.close(); raise HTTPException(400, "Invalid assignee")
         if new_assignee != old["assigned_to"]:
             updates.append("assigned_to=?"); vals.append(new_assignee); details.append("Assignment changed")
+    if ticket_type and ticket_type != old["ticket_type"]:
+        updates.append("ticket_type=?"); vals.append(ticket_type); details.append(f"Type: {old['ticket_type']} → {ticket_type}")
+    if area and area != old["area"]:
+        updates.append("area=?"); vals.append(area); details.append(f"Area: {old['area'] or 'None'} → {area}")
+    if environment != "" and environment != (old["environment"] or ""):
+        updates.append("environment=?"); vals.append(environment.strip()); details.append("Environment changed")
     if updates:
         updates.append("updated_at=?"); vals.append(now()); vals.append(ticket_id)
         conn.execute(f"UPDATE tickets SET {', '.join(updates)} WHERE id=?", vals)
         log_activity(conn,ticket_id,user["id"],"Quick update","; ".join(details))
         conn.commit()
-    conn.close(); return RedirectResponse(f"/tickets/{ticket_id}", status_code=303)
+    conn.close()
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JSONResponse({"ok": True, "changed": bool(updates)})
+    return RedirectResponse(safe_ticket_return(return_to, f"/tickets/{ticket_id}"), status_code=303)
 
 
 @app.post("/tickets/{ticket_id}/comment")
-def add_comment(request: Request, ticket_id: int, body: str = Form(...), csrf_token: str = Form(...)):
+def add_comment(request: Request, ticket_id: int, body: str = Form(...), return_to: str = Form(""), csrf_token: str = Form(...)):
     check_csrf(request, csrf_token)
     user=require_user(request); conn=db()
     if body.strip():
         conn.execute("INSERT INTO comments(ticket_id,user_id,body,created_at) VALUES(?,?,?,?)",(ticket_id,user["id"],body.strip(),now()))
         log_activity(conn,ticket_id,user["id"],"Commented",body.strip()[:140]); conn.commit()
-    conn.close(); return RedirectResponse(f"/tickets/{ticket_id}#comments",status_code=303)
+    conn.close(); return RedirectResponse(safe_ticket_return(return_to, f"/tickets/{ticket_id}#comments") + (f"#ticket-{ticket_id}" if return_to else ""),status_code=303)
 
 
 @app.post("/tickets/{ticket_id}/link")
-def add_link(request: Request, ticket_id: int, url: str = Form(...), label: str = Form("Related link"), csrf_token: str = Form(...)):
+def add_link(request: Request, ticket_id: int, url: str = Form(...), label: str = Form("Related link"), return_to: str = Form(""), csrf_token: str = Form(...)):
     check_csrf(request, csrf_token)
     user=require_user(request); conn=db()
     if url.strip():
@@ -770,15 +927,15 @@ def add_link(request: Request, ticket_id: int, url: str = Form(...), label: str 
             conn.close(); raise HTTPException(400, "Links must start with http:// or https://")
         conn.execute("INSERT INTO links(ticket_id,label,url,created_by,created_at) VALUES(?,?,?,?,?)",(ticket_id,label.strip() or "Related link",url.strip(),user["id"],now()))
         log_activity(conn,ticket_id,user["id"],"Added link",url.strip()); conn.commit()
-    conn.close(); return RedirectResponse(f"/tickets/{ticket_id}#evidence",status_code=303)
+    conn.close(); return RedirectResponse(safe_ticket_return(return_to, f"/tickets/{ticket_id}#evidence") + (f"#ticket-{ticket_id}" if return_to else ""),status_code=303)
 
 
 @app.post("/tickets/{ticket_id}/attachments")
-def add_attachments(request: Request, ticket_id: int, files: list[UploadFile] = File(...), csrf_token: str = Form(...)):
+def add_attachments(request: Request, ticket_id: int, files: list[UploadFile] = File(...), return_to: str = Form(""), csrf_token: str = Form(...)):
     check_csrf(request, csrf_token)
     user=require_user(request); conn=db(); save_uploads(conn,ticket_id,user["id"],files)
     log_activity(conn,ticket_id,user["id"],"Uploaded attachment",f"{len(files)} file(s)"); conn.commit(); conn.close()
-    return RedirectResponse(f"/tickets/{ticket_id}#evidence",status_code=303)
+    return RedirectResponse(safe_ticket_return(return_to, f"/tickets/{ticket_id}#evidence") + (f"#ticket-{ticket_id}" if return_to else ""),status_code=303)
 
 
 @app.get("/attachments/{attachment_id}")
@@ -847,6 +1004,21 @@ def update_user(request: Request, target_id: int, name: str = Form(...), email: 
     conn.close()
     return RedirectResponse("/users", status_code=303)
 
+@app.post("/account/theme")
+def update_theme(request: Request, theme: str = Form(...), csrf_token: str = Form(...)):
+    check_csrf(request, csrf_token)
+    user = require_user(request)
+    valid_themes = {value for value, _ in THEME_CHOICES}
+    if theme not in valid_themes:
+        raise HTTPException(400, "Invalid theme.")
+    conn = db()
+    conn.execute("UPDATE users SET theme=? WHERE id=?", (theme, user["id"]))
+    conn.commit(); conn.close()
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JSONResponse({"ok": True, "theme": theme})
+    return RedirectResponse(request.headers.get("referer") or "/account", status_code=303)
+
+
 @app.get("/account", response_class=HTMLResponse)
 def account_page(request: Request):
     require_user(request)
@@ -866,6 +1038,102 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
     conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(new_password), user["id"]))
     conn.commit(); conn.close()
     return templates.TemplateResponse("account.html", template_context(request, error=None, success="Password changed."))
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_page(request: Request):
+    user = require_user(request)
+    conn = db()
+    now_dt = datetime.now()
+    today = now_dt.strftime("%Y-%m-%d")
+    week_start_dt = now_dt - timedelta(days=now_dt.weekday())
+    week_start = week_start_dt.strftime("%Y-%m-%d")
+    week_end = (week_start_dt + timedelta(days=6)).strftime("%Y-%m-%d")
+
+    daily_target = safe_int(get_setting(conn, "daily_resolved_target", "0"))
+    weekly_target = safe_int(get_setting(conn, "weekly_resolved_target", "0"))
+    today_created = conn.execute("SELECT COUNT(*) FROM tickets WHERE substr(created_at,1,10)=?", (today,)).fetchone()[0]
+    today_resolved = conn.execute("SELECT COUNT(*) FROM tickets WHERE resolved_at IS NOT NULL AND substr(resolved_at,1,10)=?", (today,)).fetchone()[0]
+    week_created = conn.execute("SELECT COUNT(*) FROM tickets WHERE substr(created_at,1,10) BETWEEN ? AND ?", (week_start, week_end)).fetchone()[0]
+    week_resolved = conn.execute("SELECT COUNT(*) FROM tickets WHERE resolved_at IS NOT NULL AND substr(resolved_at,1,10) BETWEEN ? AND ?", (week_start, week_end)).fetchone()[0]
+    active = conn.execute("SELECT COUNT(*) FROM tickets WHERE status NOT IN ('resolved','closed')").fetchone()[0]
+    blockers = conn.execute("SELECT COUNT(*) FROM tickets WHERE priority='blocker' AND status NOT IN ('resolved','closed')").fetchone()[0]
+    suggestions = conn.execute("SELECT COUNT(*) FROM tickets WHERE ticket_type='suggestion' AND status NOT IN ('resolved','closed')").fetchone()[0]
+    in_progress = conn.execute("SELECT COUNT(*) FROM tickets WHERE status='in_progress'").fetchone()[0]
+    needs_review = conn.execute("SELECT COUNT(*) FROM tickets WHERE status='needs_review'").fetchone()[0]
+
+    daily_rows = []
+    max_day = 1
+    for offset in range(6, -1, -1):
+        day = (now_dt - timedelta(days=offset)).strftime("%Y-%m-%d")
+        created = conn.execute("SELECT COUNT(*) FROM tickets WHERE substr(created_at,1,10)=?", (day,)).fetchone()[0]
+        resolved = conn.execute("SELECT COUNT(*) FROM tickets WHERE resolved_at IS NOT NULL AND substr(resolved_at,1,10)=?", (day,)).fetchone()[0]
+        max_day = max(max_day, created, resolved)
+        daily_rows.append({"date": day, "label": datetime.strptime(day, "%Y-%m-%d").strftime("%a %b %d"), "created": created, "resolved": resolved})
+    for row in daily_rows:
+        row["created_percent"] = round(row["created"] / max_day * 100)
+        row["resolved_percent"] = round(row["resolved"] / max_day * 100)
+
+    recent_resolved = conn.execute("""SELECT t.id,t.ticket_no,t.title,t.priority,t.resolved_at,u.name assignee_name
+        FROM tickets t LEFT JOIN users u ON t.assigned_to=u.id
+        WHERE t.resolved_at IS NOT NULL ORDER BY t.resolved_at DESC LIMIT 12""").fetchall()
+    conn.close()
+
+    report = {
+        "today": today, "week_start": week_start, "week_end": week_end,
+        "today_created": today_created, "today_resolved": today_resolved,
+        "week_created": week_created, "week_resolved": week_resolved,
+        "daily_target": daily_target, "weekly_target": weekly_target,
+        "daily_percent": min(100, round(today_resolved / daily_target * 100)) if daily_target else 0,
+        "weekly_percent": min(100, round(week_resolved / weekly_target * 100)) if weekly_target else 0,
+        "daily_remaining": max(0, daily_target - today_resolved) if daily_target else 0,
+        "weekly_remaining": max(0, weekly_target - week_resolved) if weekly_target else 0,
+        "active": active, "blockers": blockers, "suggestions": suggestions,
+        "in_progress": in_progress, "needs_review": needs_review,
+    }
+    return templates.TemplateResponse("reports.html", template_context(request, report=report, daily_rows=daily_rows, recent_resolved=recent_resolved))
+
+
+@app.post("/reports/targets")
+def update_report_targets(request: Request, daily_target: int = Form(0), weekly_target: int = Form(0), csrf_token: str = Form(...)):
+    check_csrf(request, csrf_token)
+    user = require_user(request)
+    if not can_manage(user):
+        raise HTTPException(403)
+    daily_target = max(0, min(int(daily_target), 10000))
+    weekly_target = max(0, min(int(weekly_target), 100000))
+    conn = db()
+    set_setting(conn, "daily_resolved_target", str(daily_target), user["id"])
+    set_setting(conn, "weekly_resolved_target", str(weekly_target), user["id"])
+    log_activity(conn, None, user["id"], "Updated report targets", f"Daily resolved target: {daily_target}; weekly resolved target: {weekly_target}")
+    conn.commit(); conn.close()
+    return RedirectResponse("/reports", status_code=303)
+
+
+@app.get("/reports/export.csv")
+def export_report_csv(request: Request, period: str = "week"):
+    require_user(request)
+    conn = db()
+    now_dt = datetime.now()
+    if period == "today":
+        start = end = now_dt.strftime("%Y-%m-%d")
+        filename = f"feedback-report-{start}.csv"
+    else:
+        week_start_dt = now_dt - timedelta(days=now_dt.weekday())
+        start = week_start_dt.strftime("%Y-%m-%d")
+        end = (week_start_dt + timedelta(days=6)).strftime("%Y-%m-%d")
+        filename = f"feedback-report-{start}-to-{end}.csv"
+    rows = conn.execute("""SELECT t.ticket_no,t.title,t.ticket_type,t.priority,t.status,t.area,u.name assignee_name,t.created_at,t.resolved_at
+        FROM tickets t LEFT JOIN users u ON t.assigned_to=u.id
+        WHERE substr(t.created_at,1,10) BETWEEN ? AND ? OR (t.resolved_at IS NOT NULL AND substr(t.resolved_at,1,10) BETWEEN ? AND ?)
+        ORDER BY t.updated_at DESC""", (start, end, start, end)).fetchall()
+    conn.close()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Ticket", "Title", "Type", "Priority", "Status", "Area", "Assignee", "Created", "Resolved"])
+    for row in rows:
+        writer.writerow([row["ticket_no"], row["title"], row["ticket_type"], row["priority"], row["status"], row["area"], row["assignee_name"] or "", row["created_at"], row["resolved_at"] or ""])
+    return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
 
 @app.get("/service-worker.js")
 def service_worker():
