@@ -2,7 +2,7 @@
 {% block title %}Tickets · Feedback Hub{% endblock %}
 {% block eyebrow %}Tickets{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>{% if filters.view=='mine' %}My tasks{% elif filters.view=='completed' %}Completed tickets{% elif filters.view=='active' %}Active tickets{% else %}All tickets{% endif %}</h1><p>{{ tickets|length }} ticket{{ '' if tickets|length == 1 else 's' }} shown</p></div></div>
+<div class="page-head"><div><h1>{% if filters.view=='mine' %}My tasks{% elif filters.view=='completed' %}Completed tickets{% elif filters.view=='active' %}Active tickets{% else %}All tickets{% endif %}</h1><p>{{ tickets|length }} ticket{{ '' if tickets|length == 1 else 's' }} shown. Click a ticket title or “Expand” to see its full content here.</p></div></div>
 <form class="filters panel" method="get">
   <input type="hidden" name="view" value="{{ filters.view }}">
   <input name="q" placeholder="Search ticket, title, notes…" value="{{ filters.q }}">
@@ -12,11 +12,91 @@
   <select name="area"><option value="">All areas</option>{% for a in areas %}<option value="{{a}}" {% if filters.area==a %}selected{% endif %}>{{a}}</option>{% endfor %}</select>
   <button class="button">Filter</button>
 </form>
-<div class="panel table-panel">
-<table class="data-table"><thead><tr><th>Ticket</th><th>Feedback</th><th>Status</th><th>Priority</th><th>Area</th><th>Assigned</th><th>Updated</th></tr></thead><tbody>
-{% for t in tickets %}<tr onclick="location.href='/tickets/{{t.id}}'">
-<td><span class="ticket-id">{{t.ticket_no}}</span></td><td><strong>{{t.title}}</strong><small>{{t.description[:120]}}{{'…' if t.description|length > 120 else ''}}</small></td>
-<td><span class="badge status-{{t.status}}">{{t.status|replace('_',' ')|title}}</span></td><td><span class="badge {{t.priority}}">{{t.priority|title}}</span></td><td>{{t.area}}</td><td>{{t.assignee_name or 'Unassigned'}}</td><td>{{t.updated_at[:10]}}</td>
-</tr>{% else %}<tr><td colspan="7"><div class="empty">No matching tickets.</div></td></tr>{% endfor %}
-</tbody></table></div>
+
+<div class="ticket-cards">
+{% for t in tickets %}
+  <details class="panel ticket-card" id="ticket-{{t.id}}">
+    <summary class="ticket-card-summary">
+      <div class="ticket-card-primary">
+        <span class="ticket-id">{{t.ticket_no}}</span>
+        <div class="ticket-card-title">
+          <strong>{{t.title}}</strong>
+          <span>{{t.description[:180]}}{{'…' if t.description|length > 180 else ''}}</span>
+        </div>
+      </div>
+      <div class="ticket-card-meta">
+        <span class="badge status-{{t.status}}">{{t.status|replace('_',' ')|title}}</span>
+        <span class="badge {{t.priority}}">{{t.priority|title}}</span>
+        <span class="ticket-meta-text">{{t.area or 'General'}}</span>
+        <span class="ticket-meta-text">{{t.assignee_name or 'Unassigned'}}</span>
+        <span class="expand-text"><span class="when-closed">Expand</span><span class="when-open">Collapse</span></span>
+      </div>
+    </summary>
+
+    <div class="ticket-card-body">
+      <section class="ticket-preview-section">
+        <h3>Description</h3>
+        <div class="rich-text">{{t.description or 'No description provided.'}}</div>
+      </section>
+
+      <div class="ticket-preview-meta">
+        <div><span>Status</span><strong>{{t.status|replace('_',' ')|title}}</strong></div>
+        <div><span>Priority</span><strong>{{t.priority|title}}</strong></div>
+        <div><span>Type</span><strong>{{t.ticket_type|replace('_',' ')|title}}</strong></div>
+        <div><span>Area</span><strong>{{t.area or '—'}}</strong></div>
+        <div><span>Assigned to</span><strong>{{t.assignee_name or 'Unassigned'}}</strong></div>
+        <div><span>Submitted by</span><strong>{{t.submitter_name or 'Imported'}}</strong></div>
+        <div><span>Environment</span><strong>{{t.environment or '—'}}</strong></div>
+        <div><span>Due date</span><strong>{{t.due_date or '—'}}</strong></div>
+        <div><span>Last updated</span><strong>{{t.updated_at[:10] if t.updated_at else '—'}}</strong></div>
+      </div>
+
+      {% if t.steps_to_reproduce %}
+      <section class="ticket-preview-section"><h3>Steps to reproduce</h3><div class="rich-text">{{t.steps_to_reproduce}}</div></section>
+      {% endif %}
+
+      {% if t.expected_behavior or t.actual_behavior %}
+      <div class="ticket-preview-columns">
+        {% if t.expected_behavior %}<section class="ticket-preview-section"><h3>Expected behavior</h3><div class="rich-text">{{t.expected_behavior}}</div></section>{% endif %}
+        {% if t.actual_behavior %}<section class="ticket-preview-section"><h3>Actual behavior</h3><div class="rich-text">{{t.actual_behavior}}</div></section>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if t.root_cause or t.impact %}
+      <div class="ticket-preview-columns">
+        {% if t.root_cause %}<section class="ticket-preview-section"><h3>Root cause</h3><div class="rich-text">{{t.root_cause}}</div></section>{% endif %}
+        {% if t.impact %}<section class="ticket-preview-section"><h3>Impact</h3><div class="rich-text">{{t.impact}}</div></section>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if t.technical_notes %}
+      <section class="ticket-preview-section"><h3>Technical investigation</h3><div class="rich-text technical ticket-preview-technical">{{t.technical_notes}}</div></section>
+      {% endif %}
+
+      {% if t.resolution %}
+      <section class="ticket-preview-section"><h3>Resolution</h3><div class="rich-text">{{t.resolution}}</div></section>
+      {% endif %}
+
+      {% if t.pr_refs or t.commit_refs or t.related_tickets %}
+      <div class="ticket-reference-row">
+        {% if t.pr_refs %}<span><b>PR</b> {{t.pr_refs}}</span>{% endif %}
+        {% if t.commit_refs %}<span><b>Commit</b> {{t.commit_refs}}</span>{% endif %}
+        {% if t.related_tickets %}<span><b>Related</b> {{t.related_tickets}}</span>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if t.source_text %}
+      <details class="source-preview"><summary>Show imported source text{% if t.source_page %} · page(s) {{t.source_page}}{% endif %}</summary><div class="rich-text technical">{{t.source_text}}</div></details>
+      {% endif %}
+
+      <div class="ticket-preview-actions">
+        <a class="button primary" href="/tickets/{{t.id}}">Open full ticket</a>
+        {% if user.role!='viewer' %}<a class="button" href="/tickets/{{t.id}}/edit">Edit</a>{% endif %}
+      </div>
+    </div>
+  </details>
+{% else %}
+  <div class="panel empty">No matching tickets.</div>
+{% endfor %}
+</div>
 {% endblock %}
