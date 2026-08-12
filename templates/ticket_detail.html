@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ticket.ticket_no}} · Feedback Hub{% endblock %}
+{% block eyebrow %}Ticket {{ticket.ticket_no}}{% endblock %}
+{% block content %}
+<div class="ticket-header">
+  <div><div class="ticket-kicker"><span class="ticket-id">{{ticket.ticket_no}}</span><span class="badge {{ticket.priority}}">{{ticket.priority|title}}</span><span class="badge status-{{ticket.status}}">{{ticket.status|replace('_',' ')|title}}</span></div><h1>{{ticket.title}}</h1><p>{{ticket.description}}</p></div>
+  <div class="header-actions">{% if user.role!='viewer' %}<a class="button" href="/tickets/{{ticket.id}}/edit">Edit</a>{% endif %}</div>
+</div>
+<div class="detail-grid">
+<div class="detail-main">
+  <section class="panel section-card"><h2>Details</h2><div class="meta-grid"><div><span>Type</span><strong>{{ticket.ticket_type|title}}</strong></div><div><span>Area</span><strong>{{ticket.area}}</strong></div><div><span>Submitted by</span><strong>{{ticket.submitter_name or 'Imported'}}</strong></div><div><span>Assigned to</span><strong>{{ticket.assignee_name or 'Unassigned'}}</strong></div><div><span>Environment</span><strong>{{ticket.environment or '—'}}</strong></div><div><span>Due date</span><strong>{{ticket.due_date or '—'}}</strong></div></div></section>
+  {% if ticket.steps_to_reproduce or ticket.expected_behavior or ticket.actual_behavior %}<section class="panel section-card"><h2>Reproduction</h2>{% if ticket.steps_to_reproduce %}<h3>Steps to reproduce</h3><div class="rich-text">{{ticket.steps_to_reproduce}}</div>{% endif %}<div class="form-grid two">{% if ticket.expected_behavior %}<div><h3>Expected behavior</h3><div class="rich-text">{{ticket.expected_behavior}}</div></div>{% endif %}{% if ticket.actual_behavior %}<div><h3>Actual behavior</h3><div class="rich-text">{{ticket.actual_behavior}}</div></div>{% endif %}</div></section>{% endif %}
+  <section class="panel section-card" id="evidence"><div class="panel-head"><h2>Evidence</h2></div>
+    {% if links %}<div class="link-list">{% for l in links %}<a href="{{l.url}}" target="_blank"><span>↗</span><div><strong>{{l.label}}</strong><small>{{l.url}}</small></div></a>{% endfor %}</div>{% else %}<p class="muted">No links yet.</p>{% endif %}
+    {% if attachments %}<div class="attachment-grid">{% for a in attachments %}<a href="/attachments/{{a.id}}" target="_blank" class="attachment"><strong>{{a.filename}}</strong><small>{{a.content_type or 'file'}} · {{a.uploader_name or 'User'}}</small></a>{% endfor %}</div>{% endif %}
+    {% if user.role!='viewer' %}<div class="inline-forms"><form method="post" action="/tickets/{{ticket.id}}/link" class="mini-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="label" value="Related link" placeholder="Label"><input type="url" name="url" required placeholder="https://..."><button class="button">Add link</button></form><form method="post" enctype="multipart/form-data" action="/tickets/{{ticket.id}}/attachments" class="mini-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="file" name="files" multiple required><button class="button">Upload</button></form></div>{% endif %}
+  </section>
+  {% if ticket.root_cause or ticket.impact or ticket.technical_notes or ticket.pr_refs or ticket.commit_refs %}<section class="panel section-card"><h2>Developer analysis</h2>
+    <div class="form-grid two">{% if ticket.root_cause %}<div><h3>Root cause</h3><div class="rich-text">{{ticket.root_cause}}</div></div>{% endif %}{% if ticket.impact %}<div><h3>Impact</h3><div class="rich-text">{{ticket.impact}}</div></div>{% endif %}</div>
+    {% if ticket.pr_refs or ticket.commit_refs %}<div class="code-meta"><span>PR {{ticket.pr_refs or '—'}}</span><span>Commit {{ticket.commit_refs or '—'}}</span></div>{% endif %}
+    {% if ticket.technical_notes %}<h3>Technical notes</h3><div class="rich-text technical">{{ticket.technical_notes}}</div>{% endif %}
+  </section>{% endif %}
+  {% if ticket.resolution %}<section class="panel section-card"><h2>Resolution</h2><div class="rich-text">{{ticket.resolution}}</div></section>{% endif %}
+  {% if ticket.source_text %}<details class="panel source-details"><summary>Imported source text · page(s) {{ticket.source_page}}</summary><div class="rich-text technical">{{ticket.source_text}}</div><a href="/source" target="_blank">Open original PDF</a></details>{% endif %}
+  <section class="panel section-card" id="comments"><h2>Comments</h2><div class="comments">{% for c in comments %}<div class="comment"><span class="avatar">{{c.user_name[0]}}</span><div><div><strong>{{c.user_name}}</strong><time>{{c.created_at}}</time></div><p>{{c.body}}</p></div></div>{% else %}<p class="muted">No comments yet.</p>{% endfor %}</div>{% if user.role!='viewer' %}<form method="post" action="/tickets/{{ticket.id}}/comment" class="comment-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="body" required rows="3" placeholder="Add a comment or testing update…"></textarea><button class="button primary">Comment</button></form>{% endif %}</section>
+</div>
+<aside class="detail-side">
+  {% if user.role!='viewer' %}<section class="panel section-card sticky"><h2>Quick update</h2><form method="post" action="/tickets/{{ticket.id}}/quick-update" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Status<select name="status">{% for v,l in status_choices %}<option value="{{v}}" {% if ticket.status==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label><label>Priority<select name="priority">{% for v,l in priority_choices %}<option value="{{v}}" {% if ticket.priority==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label><label>Assigned to<select name="assigned_to"><option value="0">Unassigned</option>{% for u in users %}<option value="{{u.id}}" {% if ticket.assigned_to==u.id %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></label><button class="button primary wide">Update</button></form></section>{% endif %}
+  <section class="panel section-card"><h2>Activity</h2><div class="activity-list small">{% for a in activity[:15] %}<div class="activity-item"><span class="activity-dot"></span><div><strong>{{a.user_name or 'System'}}</strong> {{a.action|lower}}<p>{{a.details}}</p></div><time>{{a.created_at[:10]}}</time></div>{% endfor %}</div></section>
+</aside>
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Activity · Feedback Hub{% endblock %}
+{% block eyebrow %}Activity{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Activity history</h1><p>Every tracked change, comment, import, and assignment update.</p></div></div>
+<section class="panel"><div class="activity-list full">{% for a in rows %}<div class="activity-item"><span class="activity-dot"></span><div><strong>{{a.user_name or 'System'}}</strong> {{a.action|lower}}{% if a.ticket_no %} <a href="/tickets/{{a.ticket_id}}">{{a.ticket_no}}</a>{% endif %}<p>{{a.details}}</p></div><time>{{a.created_at}}</time></div>{% endfor %}</div></section>
+{% endblock %}

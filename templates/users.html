@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Users · Feedback Hub{% endblock %}
+{% block eyebrow %}Administration{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Users</h1><p>Add team members, change roles, reset passwords, and control access.</p></div></div>
+<div class="users-stack">
+<section class="panel"><div class="panel-head"><h2>Team</h2></div>
+<div class="user-cards">
+{% for u in users %}
+<form method="post" action="/users/{{u.id}}/update" class="user-edit-card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="user-card-head"><div><strong>{{u.name}}</strong><span>{{u.active_tasks}} active task{{'' if u.active_tasks==1 else 's'}}</span></div><span class="badge {{'success' if u.active else ''}}">{{'Active' if u.active else 'Inactive'}}</span></div>
+  <div class="form-grid two"><label>Name<input name="name" value="{{u.name}}" required></label><label>Email<input type="email" name="email" value="{{u.email}}" required></label></div>
+  <div class="form-grid three"><label>Role<select name="role">{% for r in role_choices %}<option value="{{r}}" {% if u.role==r %}selected{% endif %}>{{r|replace('_',' ')|title}}</option>{% endfor %}</select></label><label>Status<select name="active"><option value="1" {% if u.active %}selected{% endif %}>Active</option><option value="0" {% if not u.active %}selected{% endif %}>Inactive</option></select></label><label>Reset password<input type="password" name="new_password" minlength="12" placeholder="Leave blank to keep"></label></div>
+  <div class="form-actions compact-actions"><button class="button">Save user</button></div>
+</form>
+{% endfor %}
+</div></section>
+<section class="panel form-card narrow-card"><h2>Add user</h2><form method="post" action="/users" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Name<input name="name" required></label><label>Email<input type="email" name="email" required></label><label>Role<select name="role">{% for r in role_choices %}<option value="{{r}}">{{r|replace('_',' ')|title}}</option>{% endfor %}</select></label><label>Temporary password<input type="password" name="password" required minlength="12"></label><button class="button primary">Create user</button></form></section>
+</div>
+{% endblock %}
