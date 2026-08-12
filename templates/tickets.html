@@ -6,7 +6,7 @@
 <div class="page-head ticket-page-head">
   <div>
     <h1>{% if filters.view=='mine' %}My tasks{% elif filters.view=='completed' %}Completed tickets{% elif filters.view=='active' %}Active tickets{% else %}All tickets{% endif %}</h1>
-    <p><span id="ticket-count">{{ tickets|length }}</span> ticket{{ '' if tickets|length == 1 else 's' }} shown. Update the dropdowns right in the table. Use Details only when you want to read the complete ticket.</p>
+    <p><span id="ticket-count">{{ tickets|length }}</span> ticket{{ '' if tickets|length == 1 else 's' }} shown. Click the ticket number, feedback title, or description to expand the complete record. Use the dropdowns to update work without leaving this page.</p>
   </div>
 </div>
 
@@ -23,24 +23,29 @@
 
 <div class="panel table-panel ticket-worktable-wrap">
   <table class="data-table ticket-worktable" data-ticket-view="{{ filters.view }}">
+    <colgroup>
+      <col class="w-ticket"><col class="w-feedback"><col class="w-status"><col class="w-priority"><col class="w-assignee"><col class="w-type"><col class="w-area"><col class="w-updated">
+    </colgroup>
     <thead>
       <tr>
-        <th class="col-ticket">Ticket</th>
-        <th class="col-feedback">Feedback</th>
+        <th>Ticket</th>
+        <th>Feedback</th>
         <th>Status</th>
         <th>Priority</th>
         <th>Assignee</th>
         <th>Type</th>
         <th>Area</th>
         <th class="col-updated">Updated</th>
-        <th class="col-details">Details</th>
       </tr>
     </thead>
     {% for t in tickets %}
     <tbody class="ticket-table-group" id="ticket-{{t.id}}" data-ticket-group="{{t.id}}">
       <tr class="ticket-main-row">
-        <td class="ticket-number-cell">
-          <span class="ticket-id">{{t.ticket_no}}</span>
+        <td class="ticket-number-cell" data-label="Ticket">
+          <button class="ticket-open-trigger ticket-number-trigger" type="button" data-ticket-toggle="{{t.id}}" aria-expanded="false" aria-controls="ticket-detail-{{t.id}}">
+            <span class="ticket-id">{{t.ticket_no}}</span>
+            <span class="tap-hint">View details</span>
+          </button>
           {% if t.attachment_count %}<span class="tiny-count">{{t.attachment_count}} file{{'' if t.attachment_count==1 else 's'}}</span>{% endif %}
           <form id="quick-{{t.id}}" class="inline-quick-form" method="post" action="/tickets/{{t.id}}/quick-update" data-quick-ticket data-view="{{filters.view}}" data-current-user="{{user.id}}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -48,25 +53,27 @@
             <span class="quick-save-state" data-save-state aria-live="polite"></span>
           </form>
         </td>
-        <td class="feedback-cell">
-          <strong>{{t.title}}</strong>
-          <span>{{t.description[:155]}}{{'…' if t.description|length > 155 else ''}}</span>
+        <td class="feedback-cell" data-label="Feedback">
+          <button class="ticket-open-trigger feedback-trigger" type="button" data-ticket-toggle="{{t.id}}" aria-expanded="false" aria-controls="ticket-detail-{{t.id}}">
+            <strong>{{t.title}}</strong>
+            <span>{{t.description[:210]}}{{'…' if t.description|length > 210 else ''}}</span>
+          </button>
         </td>
-        <td>
+        <td data-label="Status">
           {% if user.role!='viewer' %}
           <select class="inline-select status-select status-value-{{t.status}}" name="status" form="quick-{{t.id}}" data-quick-control aria-label="Status for {{t.ticket_no}}">
             {% for v,l in status_choices %}<option value="{{v}}" {% if t.status==v %}selected{% endif %}>{{l}}</option>{% endfor %}
           </select>
           {% else %}<span class="badge status-{{t.status}}">{{t.status|replace('_',' ')|title}}</span>{% endif %}
         </td>
-        <td>
+        <td data-label="Priority">
           {% if user.role!='viewer' %}
           <select class="inline-select priority-select priority-value-{{t.priority}}" name="priority" form="quick-{{t.id}}" data-quick-control aria-label="Priority for {{t.ticket_no}}">
             {% for v,l in priority_choices %}<option value="{{v}}" {% if t.priority==v %}selected{% endif %}>{{l}}</option>{% endfor %}
           </select>
           {% else %}<span class="badge {{t.priority}}">{{t.priority|title}}</span>{% endif %}
         </td>
-        <td>
+        <td data-label="Assignee">
           {% if user.role!='viewer' %}
           <select class="inline-select" name="assigned_to" form="quick-{{t.id}}" data-quick-control aria-label="Assignee for {{t.ticket_no}}">
             <option value="0" {% if not t.assigned_to %}selected{% endif %}>Unassigned</option>
@@ -74,34 +81,34 @@
           </select>
           {% else %}{{t.assignee_name or 'Unassigned'}}{% endif %}
         </td>
-        <td>
+        <td data-label="Type">
           {% if user.role!='viewer' %}
           <select class="inline-select" name="ticket_type" form="quick-{{t.id}}" data-quick-control aria-label="Type for {{t.ticket_no}}">
             {% for v,l in type_choices %}<option value="{{v}}" {% if t.ticket_type==v %}selected{% endif %}>{{l}}</option>{% endfor %}
           </select>
           {% else %}{{t.ticket_type|replace('_',' ')|title}}{% endif %}
         </td>
-        <td>
+        <td data-label="Area">
           {% if user.role!='viewer' %}
           <select class="inline-select" name="area" form="quick-{{t.id}}" data-quick-control aria-label="Area for {{t.ticket_no}}">
             {% for a in areas %}<option value="{{a}}" {% if t.area==a %}selected{% endif %}>{{a}}</option>{% endfor %}
           </select>
           {% else %}{{t.area or 'General'}}{% endif %}
         </td>
-        <td class="updated-cell">{{t.updated_at[:10] if t.updated_at else '—'}}</td>
-        <td>
-          <button class="table-detail-button" type="button" data-ticket-toggle="{{t.id}}" aria-expanded="false" aria-controls="ticket-detail-{{t.id}}">View</button>
-        </td>
+        <td class="updated-cell col-updated" data-label="Updated">{{t.updated_at[:10] if t.updated_at else '—'}}</td>
       </tr>
       <tr class="ticket-detail-row" id="ticket-detail-{{t.id}}" hidden>
-        <td colspan="9">
+        <td colspan="8">
           <div class="ticket-inline-detail">
             <div class="inline-detail-top">
               <div>
                 <span class="ticket-id">{{t.ticket_no}}</span>
                 <h2>{{t.title}}</h2>
               </div>
-              {% if user.role!='viewer' %}<a class="button subtle" href="/tickets/{{t.id}}/edit">Edit text fields</a>{% endif %}
+              <div class="inline-detail-actions">
+                <button class="button subtle" type="button" data-ticket-toggle="{{t.id}}">Collapse</button>
+                {% if user.role!='viewer' %}<a class="button subtle" href="/tickets/{{t.id}}/edit">Edit text fields</a>{% endif %}
+              </div>
             </div>
 
             <div class="detail-content-grid">
@@ -117,8 +124,8 @@
                   <div><span>Environment</span>
                     {% if user.role!='viewer' %}<input class="inline-text-input" name="environment" form="quick-{{t.id}}" data-quick-control value="{{t.environment or ''}}" placeholder="Staging">{% else %}<strong>{{t.environment or '—'}}</strong>{% endif %}
                   </div>
-                  <div><span>Due date</span><strong>{{t.due_date or '—'}}</strong></div>
                   <div><span>Related tickets</span><strong>{{t.related_tickets or '—'}}</strong></div>
+                  <div><span>Source page</span><strong>{{t.source_page or '—'}}</strong></div>
                 </div>
               </section>
 
@@ -138,7 +145,18 @@
               {% endif %}
 
               <section class="detail-block detail-block-wide evidence-inline-block">
-                <h3>Links and files</h3>
+                <h3>Links and photos</h3>
+                {% set image_attachments = t.attachments|selectattr('is_image')|list %}
+                {% if image_attachments %}
+                <div class="ticket-photo-gallery">
+                  {% for a in image_attachments %}
+                  <a href="/attachments/{{a.id}}" target="_blank" class="ticket-photo" title="{{a.filename}}">
+                    <img src="/attachments/{{a.id}}/preview" alt="{{a.filename}}" loading="lazy">
+                    <span>{{a.filename}}</span>
+                  </a>
+                  {% endfor %}
+                </div>
+                {% endif %}
                 <div class="evidence-columns">
                   <div>
                     {% if t.links %}<div class="link-list compact-links">{% for l in t.links %}<a href="{{l.url}}" target="_blank" rel="noopener"><span>↗</span><div><strong>{{l.label or 'Related link'}}</strong><small>{{l.url}}</small></div></a>{% endfor %}</div>{% else %}<p class="muted">No links yet.</p>{% endif %}
@@ -156,7 +174,7 @@
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="return_to" value="{{ return_to }}">
                       <div class="dropzone compact-dropzone" data-dropzone tabindex="0">
                         <input class="dropzone-input" type="file" name="files" multiple accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
-                        <div class="dropzone-copy"><strong>Drop or paste files</strong><span>Command+V also works for screenshots.</span></div>
+                        <div class="dropzone-copy"><strong>Drop or paste photos/files</strong><span>Command+V works for screenshots.</span></div>
                         <div class="dropzone-preview" data-dropzone-preview></div>
                       </div>
                       <button class="button" type="submit">Upload selected</button>
@@ -181,7 +199,7 @@
       </tr>
     </tbody>
     {% else %}
-    <tbody><tr><td colspan="9" class="empty">No matching tickets.</td></tr></tbody>
+    <tbody><tr><td colspan="8" class="empty">No matching tickets.</td></tr></tbody>
     {% endfor %}
   </table>
 </div>
