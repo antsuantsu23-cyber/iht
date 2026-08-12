@@ -11,14 +11,14 @@
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <link rel="icon" href="/static/icons/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=7">
+  <script src="/static/app.js?v=7" defer></script>
 </head>
 <body data-theme="{{ user.theme if user and user.theme else 'pink' }}" data-csrf="{{ csrf_token if user else '' }}">
 {% if user %}
 <div class="app-shell">
   <aside class="sidebar" id="app-sidebar">
-    <div class="brand"><div class="brand-mark">FH</div><div class="sidebar-label"><strong>Feedback Hub</strong><span>Team workspace</span></div></div>
+    <div class="brand-row"><div class="brand"><div class="brand-mark">FH</div><div class="sidebar-label"><strong>Feedback Hub</strong><span>Team workspace</span></div></div><button class="sidebar-hide-button" type="button" data-sidebar-toggle aria-label="Hide navigation" title="Hide menu">‹</button></div>
     <nav>
       <a href="/" class="nav-link"><span>Dashboard</span></a>
       <a href="/tickets?view=mine" class="nav-link"><span>My Tasks</span></a>
@@ -37,9 +37,10 @@
       <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="link-button">Sign out</button></form>
     </div>
   </aside>
+  <button class="sidebar-restore" type="button" data-sidebar-toggle aria-label="Show navigation" title="Show menu"><span>☰</span><b>Menu</b></button>
   <main class="main">
     <header class="topbar">
-      <div class="topbar-left"><button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" title="Show or hide menu"><span></span><span></span><span></span></button><div>{% block eyebrow %}Team Feedback Hub{% endblock %}</div></div>
+      <div class="topbar-left"><button id="sidebar-toggle" class="sidebar-toggle" type="button" data-sidebar-toggle aria-controls="app-sidebar" aria-expanded="true" title="Show or hide menu"><span></span><span></span><span></span></button><div>{% block eyebrow %}Team Feedback Hub{% endblock %}</div></div>
       <div class="topbar-actions">
         <label class="theme-quick-picker" title="Change interface color">
           <span>Theme</span>

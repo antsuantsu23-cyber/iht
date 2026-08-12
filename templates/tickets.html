@@ -44,7 +44,7 @@
         <td class="ticket-number-cell" data-label="Ticket">
           <button class="ticket-open-trigger ticket-number-trigger" type="button" data-ticket-toggle="{{t.id}}" aria-expanded="false" aria-controls="ticket-detail-{{t.id}}">
             <span class="ticket-id">{{t.ticket_no}}</span>
-            <span class="tap-hint">View details</span>
+            <span class="tap-hint" data-ticket-hint>View details</span>
           </button>
           {% if t.attachment_count %}<span class="tiny-count">{{t.attachment_count}} file{{'' if t.attachment_count==1 else 's'}}</span>{% endif %}
           <form id="quick-{{t.id}}" class="inline-quick-form" method="post" action="/tickets/{{t.id}}/quick-update" data-quick-ticket data-view="{{filters.view}}" data-current-user="{{user.id}}">
