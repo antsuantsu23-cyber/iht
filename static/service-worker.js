@@ -1,7 +1,5 @@
-const CACHE = 'feedback-hub-shell-v5';
+const CACHE = 'feedback-hub-shell-v7';
 const SHELL = [
-  '/static/style.css',
-  '/static/app.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
   '/offline'
@@ -23,13 +21,19 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache authenticated ticket pages or source/attachment data.
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).catch(() => caches.match('/offline')));
     return;
   }
 
-  if (url.pathname.startsWith('/static/')) {
+  // Always prefer the newest CSS / JS after a Railway deployment. This avoids
+  // old PWA cache entries making newly added buttons appear non-functional.
+  if (url.pathname === '/static/style.css' || url.pathname === '/static/app.js' || url.pathname === '/service-worker.js') {
+    event.respondWith(fetch(request, {cache: 'no-store'}).catch(() => caches.match(request)));
+    return;
+  }
+
+  if (url.pathname.startsWith('/static/icons/')) {
     event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
   }
 });

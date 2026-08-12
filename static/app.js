@@ -35,41 +35,47 @@
   });
 
 
-  // Collapsible navigation. Desktop remembers the user's preference locally;
-  // mobile uses the same button as an overlay menu without squeezing the table.
-  const sidebarToggle = document.getElementById('sidebar-toggle');
+  // Collapsible navigation. Any menu control can hide/show the sidebar.
+  // Desktop state is remembered. Mobile uses the same controls as an overlay.
+  const sidebarToggles = [...document.querySelectorAll('[data-sidebar-toggle]')];
+  const setSidebarAria = (expanded) => sidebarToggles.forEach((button) => button.setAttribute('aria-expanded', expanded ? 'true' : 'false'));
   const applySidebarState = () => {
     const mobile = window.matchMedia('(max-width: 760px)').matches;
     if (mobile) {
       document.body.classList.remove('sidebar-hidden');
       document.body.classList.remove('sidebar-mobile-open');
-      sidebarToggle?.setAttribute('aria-expanded', 'false');
-    } else {
-      document.body.classList.remove('sidebar-mobile-open');
-      const hidden = localStorage.getItem('feedbackHubSidebarHidden') === '1';
-      document.body.classList.toggle('sidebar-hidden', hidden);
-      sidebarToggle?.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+      setSidebarAria(false);
+      return;
     }
+    document.body.classList.remove('sidebar-mobile-open');
+    const hidden = localStorage.getItem('feedbackHubSidebarHidden') === '1';
+    document.body.classList.toggle('sidebar-hidden', hidden);
+    setSidebarAria(!hidden);
   };
-  sidebarToggle?.addEventListener('click', () => {
-    const mobile = window.matchMedia('(max-width: 760px)').matches;
-    if (mobile) {
-      const open = document.body.classList.toggle('sidebar-mobile-open');
-      sidebarToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    } else {
-      const hidden = document.body.classList.toggle('sidebar-hidden');
-      localStorage.setItem('feedbackHubSidebarHidden', hidden ? '1' : '0');
-      sidebarToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
-    }
+
+  sidebarToggles.forEach((button) => {
+    button.addEventListener('click', () => {
+      const mobile = window.matchMedia('(max-width: 760px)').matches;
+      if (mobile) {
+        const open = document.body.classList.toggle('sidebar-mobile-open');
+        setSidebarAria(open);
+      } else {
+        const hidden = document.body.classList.toggle('sidebar-hidden');
+        localStorage.setItem('feedbackHubSidebarHidden', hidden ? '1' : '0');
+        setSidebarAria(!hidden);
+      }
+    });
   });
+
   document.querySelectorAll('.sidebar .nav-link').forEach((link) => {
     link.addEventListener('click', () => {
       if (window.matchMedia('(max-width: 760px)').matches) {
         document.body.classList.remove('sidebar-mobile-open');
-        sidebarToggle?.setAttribute('aria-expanded', 'false');
+        setSidebarAria(false);
       }
     });
   });
+
   let sidebarResizeTimer = null;
   window.addEventListener('resize', () => {
     window.clearTimeout(sidebarResizeTimer);
@@ -153,14 +159,16 @@
   });
 
   const setTicketExpanded = (ticketId, open) => {
-    const button = document.querySelector(`[data-ticket-toggle="${ticketId}"]`);
     const row = document.getElementById(`ticket-detail-${ticketId}`);
-    if (!button || !row) return;
+    if (!row) return;
     row.hidden = !open;
-    button.setAttribute('aria-expanded', open ? 'true' : 'false');
-    button.textContent = open ? 'Hide' : 'View';
-    const group = button.closest('[data-ticket-group]');
+    const toggles = [...document.querySelectorAll(`[data-ticket-toggle="${ticketId}"]`)];
+    toggles.forEach((button) => button.setAttribute('aria-expanded', open ? 'true' : 'false'));
+    const group = document.querySelector(`[data-ticket-group="${ticketId}"]`);
     if (group) group.classList.toggle('is-open', open);
+    group?.querySelectorAll('[data-ticket-hint]').forEach((hint) => {
+      hint.textContent = open ? 'Hide details' : 'View details';
+    });
   };
 
   document.querySelectorAll('[data-ticket-toggle]').forEach((button) => {
