@@ -2,32 +2,67 @@
 {% block title %}{{ 'Edit '+ticket.ticket_no if ticket else 'New feedback' }} · Feedback Hub{% endblock %}
 {% block eyebrow %}{{ 'Edit ticket' if ticket else 'New feedback' }}{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>{{ 'Edit '+ticket.ticket_no if ticket else 'Submit feedback' }}</h1><p>Capture the issue, evidence, ownership, and resolution details.</p></div></div>
-<form class="form-layout" method="post" enctype="multipart/form-data" action="{{ '/tickets/'+ticket.id|string+'/edit' if ticket else '/tickets/new' }}">
+<div class="page-head form-page-head">
+  <div>
+    <h1>{{ 'Edit '+ticket.ticket_no if ticket else 'Submit feedback' }}</h1>
+    <p>{{ 'Update the ticket details below.' if ticket else 'Add the feedback, assign ownership, and attach anything your team needs to act on it.' }}</p>
+  </div>
+</div>
+<form class="form-layout refined-feedback-form" method="post" enctype="multipart/form-data" action="{{ '/tickets/'+ticket.id|string+'/edit' if ticket else '/tickets/new' }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<section class="panel form-card"><h2>Overview</h2>
+
+<section class="panel form-card form-card-featured">
+  <div class="form-section-heading"><div><span class="section-number">01</span><h2>Feedback</h2></div><p>The main information your team will see in the ticket table.</p></div>
   <label>Feedback title<input name="title" required value="{{ ticket.title if ticket else '' }}" placeholder="Short, specific summary"></label>
-  <label>Description<textarea name="description" rows="5" placeholder="What happened and why does it matter?">{{ ticket.description if ticket else '' }}</textarea></label>
-  <div class="form-grid three"><label>Type<select name="ticket_type">{% for v,l in type_choices %}<option value="{{v}}" {% if ticket and ticket.ticket_type==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label>
-  <label>Priority<select name="priority">{% for v,l in priority_choices %}<option value="{{v}}" {% if ticket and ticket.priority==v %}selected{% elif not ticket and v=='medium' %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label>
-  <label>Status<select name="status">{% for v,l in status_choices %}<option value="{{v}}" {% if ticket and ticket.status==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label></div>
-  <div class="form-grid three"><label>Feature area<select name="area">{% for a in areas %}<option value="{{a}}" {% if ticket and ticket.area==a %}selected{% endif %}>{{a}}</option>{% endfor %}</select></label>
-  <label>Assigned to<select name="assigned_to"><option value="">Unassigned</option>{% for u in users %}<option value="{{u.id}}" {% if ticket and ticket.assigned_to==u.id %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></label>
-  <label>Due date<input type="date" name="due_date" value="{{ ticket.due_date if ticket and ticket.due_date else '' }}"></label></div>
+  <label>Description<textarea name="description" rows="6" placeholder="Describe the feedback, issue, or request in enough detail for the assignee to understand it.">{{ ticket.description if ticket else '' }}</textarea></label>
+  <div class="form-grid three">
+    <label>Type<select name="ticket_type">{% for v,l in type_choices %}<option value="{{v}}" {% if ticket and ticket.ticket_type==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label>
+    <label>Priority<select name="priority">{% for v,l in priority_choices %}<option value="{{v}}" {% if ticket and ticket.priority==v %}selected{% elif not ticket and v=='medium' %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label>
+    <label>Status<select name="status">{% for v,l in status_choices %}<option value="{{v}}" {% if ticket and ticket.status==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select></label>
+  </div>
+  <div class="form-grid {% if ticket %}three{% else %}two{% endif %}">
+    <label>Feature area<select name="area">{% for a in areas %}<option value="{{a}}" {% if ticket and ticket.area==a %}selected{% endif %}>{{a}}</option>{% endfor %}</select></label>
+    <label>Assigned to<select name="assigned_to"><option value="">Unassigned</option>{% for u in users %}<option value="{{u.id}}" {% if ticket and ticket.assigned_to==u.id %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></label>
+    {% if ticket %}<label>Due date<input type="date" name="due_date" value="{{ ticket.due_date if ticket and ticket.due_date else '' }}"></label>{% endif %}
+  </div>
 </section>
-<section class="panel form-card"><h2>Reproduction and evidence</h2>
-  <label>Steps to reproduce<textarea name="steps_to_reproduce" rows="5" placeholder="1. Open…\n2. Click…\n3. Observe…">{{ticket.steps_to_reproduce if ticket else ''}}</textarea></label>
+
+{% if not ticket %}
+<section class="panel form-card">
+  <div class="form-section-heading"><div><span class="section-number">02</span><h2>Links and photos</h2></div><p>Paste a useful URL, then drag or paste screenshots and files directly below.</p></div>
+  <label>Related link<input type="url" name="link_url" placeholder="https://..."></label>
+  <div class="dropzone large-dropzone" data-dropzone tabindex="0" aria-label="Photo and file upload area">
+    <input class="dropzone-input" type="file" name="files" multiple accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+    <div class="dropzone-copy">
+      <span class="dropzone-icon">＋</span>
+      <strong>Drop photos or files here</strong>
+      <span>Paste screenshots with Command+V, drag them into this box, or click to choose files.</span>
+      <small>Images, PDF, Office files, CSV and text files · up to 20 MB each</small>
+    </div>
+    <div class="dropzone-preview" data-dropzone-preview></div>
+  </div>
+</section>
+{% else %}
+<section class="panel form-card">
+  <div class="form-section-heading"><div><span class="section-number">02</span><h2>Existing reproduction details</h2></div><p>These fields remain available when editing older tickets that already use them.</p></div>
+  <label>Steps to reproduce<textarea name="steps_to_reproduce" rows="5">{{ticket.steps_to_reproduce if ticket else ''}}</textarea></label>
   <div class="form-grid two"><label>Expected behavior<textarea name="expected_behavior" rows="4">{{ticket.expected_behavior if ticket else ''}}</textarea></label><label>Actual behavior<textarea name="actual_behavior" rows="4">{{ticket.actual_behavior if ticket else ''}}</textarea></label></div>
-  {% if not ticket %}<div class="form-grid two"><label>Related link<input type="url" name="link_url" placeholder="https://..."></label><label>Link label<input name="link_label" value="Related link"></label></div>
-  <label>Photos or files<input type="file" name="files" multiple></label>{% endif %}
 </section>
-<section class="panel form-card"><h2>Developer analysis</h2>
+{% endif %}
+
+<section class="panel form-card">
+  <div class="form-section-heading"><div><span class="section-number">{{ '03' }}</span><h2>Developer analysis</h2></div><p>Keep this blank until needed, or add investigation details now.</p></div>
   <div class="form-grid two"><label>Root cause<textarea name="root_cause" rows="4">{{ticket.root_cause if ticket else ''}}</textarea></label><label>Impact<textarea name="impact" rows="4">{{ticket.impact if ticket else ''}}</textarea></label></div>
   <label>Technical notes<textarea name="technical_notes" rows="7" placeholder="Files, components, investigation notes…">{{ticket.technical_notes if ticket else ''}}</textarea></label>
   <div class="form-grid three"><label>PR references<input name="pr_refs" value="{{ticket.pr_refs if ticket else ''}}" placeholder="PR #1088"></label><label>Commit references<input name="commit_refs" value="{{ticket.commit_refs if ticket else ''}}"></label><label>Environment<input name="environment" value="{{ticket.environment if ticket else 'Staging'}}"></label></div>
   <label>Related tickets<input name="related_tickets" value="{{ticket.related_tickets if ticket else ''}}" placeholder="00185, 00188"></label>
 </section>
-<section class="panel form-card"><h2>Resolution</h2><label>Resolution<textarea name="resolution" rows="5" placeholder="What changed and how was it verified?">{{ticket.resolution if ticket else ''}}</textarea></label></section>
-<div class="form-actions"><a class="button" href="{{ '/tickets/'+ticket.id|string if ticket else '/tickets' }}">Cancel</a><button class="button primary">{{ 'Save changes' if ticket else 'Create ticket' }}</button></div>
+
+<section class="panel form-card">
+  <div class="form-section-heading"><div><span class="section-number">04</span><h2>Resolution</h2></div><p>Add the fix or final outcome when it is known.</p></div>
+  <label>Resolution<textarea name="resolution" rows="5" placeholder="What changed and how was it verified?">{{ticket.resolution if ticket else ''}}</textarea></label>
+</section>
+
+<div class="form-actions"><a class="button" href="{{ '/tickets?view=active' if not ticket else '/tickets?view=active#ticket-'+ticket.id|string }}">Cancel</a><button class="button primary">{{ 'Save changes' if ticket else 'Create ticket' }}</button></div>
 </form>
 {% endblock %}
