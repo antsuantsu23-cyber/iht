@@ -2,19 +2,82 @@
 {% block title %}Dashboard · Feedback Hub{% endblock %}
 {% block eyebrow %}Dashboard{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Feedback dashboard</h1><p>See what needs attention and who owns the next action.</p></div></div>
+<div class="page-head dashboard-head">
+  <div><h1>Feedback dashboard</h1><p>See workload, ticket mix, progress, and whether the team is hitting its resolution goals.</p></div>
+  <a class="button" href="/reports">Open full report</a>
+</div>
+
 <div class="stat-grid">
   <a class="stat-card" href="/tickets?status=open"><span>Open</span><strong>{{ stats.open }}</strong></a>
   <a class="stat-card" href="/tickets?status=in_progress"><span>In progress</span><strong>{{ stats.in_progress }}</strong></a>
   <a class="stat-card danger" href="/tickets?priority=blocker&view=active"><span>Blockers</span><strong>{{ stats.blocker }}</strong></a>
   <a class="stat-card" href="/tickets?status=needs_review"><span>Needs review</span><strong>{{ stats.needs_review }}</strong></a>
-  <a class="stat-card success" href="/tickets?view=completed"><span>Resolved</span><strong>{{ stats.resolved }}</strong></a>
+  <a class="stat-card success" href="/tickets?view=completed"><span>Resolved</span><strong>{{ stats.resolved + stats.closed }}</strong></a>
   <a class="stat-card warning" href="/tickets?assignee=0&view=active"><span>Unassigned</span><strong>{{ stats.unassigned }}</strong></a>
 </div>
-<div class="two-col">
+
+<div class="dashboard-visual-grid">
+  <section class="panel chart-panel">
+    <div class="panel-head"><div><h2>Status overview</h2><p>All tickets by current status</p></div><a href="/tickets">View tickets</a></div>
+    <div class="chart-layout">
+      <div class="donut-chart" style="background:{{ status_chart }}"><div class="donut-hole"><strong>{{ stats.total }}</strong><span>Total</span></div></div>
+      <div class="chart-legend">
+        <a href="/tickets?status=open"><i class="legend-dot chart-open"></i><span>Open</span><strong>{{ stats.open }}</strong></a>
+        <a href="/tickets?status=assigned"><i class="legend-dot chart-assigned"></i><span>Assigned</span><strong>{{ stats.assigned }}</strong></a>
+        <a href="/tickets?status=in_progress"><i class="legend-dot chart-progress"></i><span>In progress</span><strong>{{ stats.in_progress }}</strong></a>
+        <a href="/tickets?status=needs_review"><i class="legend-dot chart-review"></i><span>Needs review</span><strong>{{ stats.needs_review }}</strong></a>
+        <a href="/tickets?status=resolved"><i class="legend-dot chart-resolved"></i><span>Resolved</span><strong>{{ stats.resolved }}</strong></a>
+        <a href="/tickets?status=closed"><i class="legend-dot chart-closed"></i><span>Closed</span><strong>{{ stats.closed }}</strong></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel chart-panel">
+    <div class="panel-head"><div><h2>Feedback mix</h2><p>Bugs, suggestions, tasks, and improvements</p></div></div>
+    <div class="chart-layout">
+      <div class="donut-chart" style="background:{{ type_chart }}"><div class="donut-hole"><strong>{{ stats.total }}</strong><span>Tickets</span></div></div>
+      <div class="chart-legend">
+        <a href="/tickets?ticket_type=bug"><i class="legend-dot chart-bug"></i><span>Bugs</span><strong>{{ type_counts.bug }}</strong></a>
+        <a href="/tickets?ticket_type=suggestion"><i class="legend-dot chart-suggestion"></i><span>Suggestions</span><strong>{{ type_counts.suggestion }}</strong></a>
+        <a href="/tickets?ticket_type=task"><i class="legend-dot chart-task"></i><span>Tasks</span><strong>{{ type_counts.task }}</strong></a>
+        <a href="/tickets?ticket_type=improvement"><i class="legend-dot chart-improvement"></i><span>Improvements</span><strong>{{ type_counts.improvement }}</strong></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel goal-panel">
+    <div class="panel-head"><div><h2>Resolution goals</h2><p>Progress against the team's current targets</p></div><a href="/reports">Manage report</a></div>
+    <div class="goal-pair">
+      <div class="goal-card">
+        <div class="goal-ring" style="--goal-progress:{{ goals.daily_percent }}%"><div><strong>{{ goals.today_resolved }}</strong><span>resolved</span></div></div>
+        <div><span class="goal-label">Today</span>{% if goals.daily_target %}<strong>{{ goals.daily_percent }}%</strong><small>Target {{ goals.daily_target }}</small>{% else %}<strong>—</strong><small>No target set</small>{% endif %}</div>
+      </div>
+      <div class="goal-card">
+        <div class="goal-ring" style="--goal-progress:{{ goals.weekly_percent }}%"><div><strong>{{ goals.week_resolved }}</strong><span>resolved</span></div></div>
+        <div><span class="goal-label">This week</span>{% if goals.weekly_target %}<strong>{{ goals.weekly_percent }}%</strong><small>Target {{ goals.weekly_target }}</small>{% else %}<strong>—</strong><small>No target set</small>{% endif %}</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="panel priority-panel">
+  <div class="panel-head"><div><h2>Active priority load</h2><p>Quick view of unresolved work by priority</p></div></div>
+  <div class="priority-visuals">
+    {% for value,label in priority_choices %}
+    {% set count = active_priority_counts[value] %}
+    <a href="/tickets?priority={{ value }}&view=active" class="priority-visual-row">
+      <span><i class="priority-dot priority-dot-{{ value }}"></i>{{ label }}</span>
+      <div class="report-bar"><i style="width:{{ [count*8,100]|min }}%"></i></div>
+      <strong>{{ count }}</strong>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="two-col dashboard-bottom-grid">
   <section class="panel"><div class="panel-head"><h2>My tasks</h2><a href="/tickets?view=mine">View all</a></div>
     {% if my_tasks %}<div class="ticket-list compact">{% for t in my_tasks %}
-      <a class="ticket-row" href="/tickets/{{ t.id }}"><span class="ticket-id">{{ t.ticket_no }}</span><div class="ticket-main"><strong>{{ t.title }}</strong><span>{{ t.area }} · {{ t.status|replace('_',' ')|title }}</span></div><span class="badge {{ t.priority }}">{{ t.priority|title }}</span></a>
+      <a class="ticket-row" href="/tickets?view=mine#ticket-{{ t.id }}"><span class="ticket-id">{{ t.ticket_no }}</span><div class="ticket-main"><strong>{{ t.title }}</strong><span>{{ t.area }} · {{ t.status|replace('_',' ')|title }}</span></div><span class="badge {{ t.priority }}">{{ t.priority|title }}</span></a>
     {% endfor %}</div>{% else %}<div class="empty">No active tasks assigned to you.</div>{% endif %}
   </section>
   <section class="panel"><div class="panel-head"><h2>Team workload</h2></div>
@@ -22,6 +85,6 @@
   </section>
 </div>
 <section class="panel"><div class="panel-head"><h2>Recent activity</h2><a href="/activity">Full history</a></div>
-  <div class="activity-list">{% for a in recent %}<div class="activity-item"><span class="activity-dot"></span><div><strong>{{ a.user_name or 'System' }}</strong> {{ a.action|lower }}{% if a.ticket_no %} <a href="/tickets/{{ a.ticket_id }}">{{ a.ticket_no }}</a>{% endif %}<p>{{ a.details }}</p></div><time>{{ a.created_at }}</time></div>{% endfor %}</div>
+  <div class="activity-list">{% for a in recent %}<div class="activity-item"><span class="activity-dot"></span><div><strong>{{ a.user_name or 'System' }}</strong> {{ a.action|lower }}{% if a.ticket_no %} <a href="/tickets#ticket-{{ a.ticket_id }}">{{ a.ticket_no }}</a>{% endif %}<p>{{ a.details }}</p></div><time>{{ a.created_at }}</time></div>{% endfor %}</div>
 </section>
 {% endblock %}

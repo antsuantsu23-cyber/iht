@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Reports · Feedback Hub{% endblock %}
+{% block eyebrow %}Reports{% endblock %}
+{% block content %}
+<div class="page-head report-page-head">
+  <div><h1>Team performance report</h1><p>Track daily and weekly resolution goals, incoming work, and unresolved workload.</p></div>
+  <div class="report-actions"><button type="button" class="button" data-print-report>Print report</button><a class="button" href="/reports/export.csv?period=today">Today CSV</a><a class="button" href="/reports/export.csv?period=week">Week CSV</a></div>
+</div>
+
+<div class="report-period-strip">
+  <span>Today <strong>{{ report.today }}</strong></span>
+  <span>This week <strong>{{ report.week_start }} to {{ report.week_end }}</strong></span>
+</div>
+
+<div class="report-goal-grid">
+  <section class="panel report-goal-card {% if report.daily_target and report.today_resolved >= report.daily_target %}goal-hit{% endif %}">
+    <div class="goal-ring large" style="--goal-progress:{{ report.daily_percent }}%"><div><strong>{{ report.today_resolved }}</strong><span>resolved</span></div></div>
+    <div class="report-goal-copy"><span>Daily goal</span>{% if report.daily_target %}<h2>{{ report.today_resolved }} of {{ report.daily_target }}</h2><p>{% if report.today_resolved >= report.daily_target %}Target hit for today{% else %}{{ report.daily_remaining }} more resolution{{ '' if report.daily_remaining==1 else 's' }} needed{% endif %}</p>{% else %}<h2>No target set</h2><p>A manager can set the daily goal below.</p>{% endif %}</div>
+  </section>
+  <section class="panel report-goal-card {% if report.weekly_target and report.week_resolved >= report.weekly_target %}goal-hit{% endif %}">
+    <div class="goal-ring large" style="--goal-progress:{{ report.weekly_percent }}%"><div><strong>{{ report.week_resolved }}</strong><span>resolved</span></div></div>
+    <div class="report-goal-copy"><span>Weekly goal</span>{% if report.weekly_target %}<h2>{{ report.week_resolved }} of {{ report.weekly_target }}</h2><p>{% if report.week_resolved >= report.weekly_target %}Target hit for this week{% else %}{{ report.weekly_remaining }} more resolution{{ '' if report.weekly_remaining==1 else 's' }} needed{% endif %}</p>{% else %}<h2>No target set</h2><p>A manager can set the weekly goal below.</p>{% endif %}</div>
+  </section>
+</div>
+
+{% if can_manage %}
+<section class="panel target-settings no-print">
+  <div class="panel-head"><div><h2>Set team targets</h2><p>Targets count tickets moved to Resolved or Closed during the period.</p></div></div>
+  <form method="post" action="/reports/targets" class="target-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Daily resolved target<input type="number" min="0" max="10000" name="daily_target" value="{{ report.daily_target }}"></label>
+    <label>Weekly resolved target<input type="number" min="0" max="100000" name="weekly_target" value="{{ report.weekly_target }}"></label>
+    <button class="button primary">Save targets</button>
+  </form>
+</section>
+{% endif %}
+
+<div class="report-kpi-grid">
+  <div class="report-kpi"><span>Created today</span><strong>{{ report.today_created }}</strong></div>
+  <div class="report-kpi"><span>Resolved today</span><strong>{{ report.today_resolved }}</strong></div>
+  <div class="report-kpi"><span>Created this week</span><strong>{{ report.week_created }}</strong></div>
+  <div class="report-kpi"><span>Resolved this week</span><strong>{{ report.week_resolved }}</strong></div>
+  <div class="report-kpi"><span>Active tickets</span><strong>{{ report.active }}</strong></div>
+  <div class="report-kpi danger"><span>Active blockers</span><strong>{{ report.blockers }}</strong></div>
+  <div class="report-kpi"><span>Suggestions</span><strong>{{ report.suggestions }}</strong></div>
+  <div class="report-kpi"><span>Needs review</span><strong>{{ report.needs_review }}</strong></div>
+</div>
+
+<section class="panel report-trend-panel">
+  <div class="panel-head"><div><h2>Last 7 days</h2><p>Created tickets compared with resolved tickets</p></div></div>
+  <div class="trend-legend"><span><i class="trend-created"></i>Created</span><span><i class="trend-resolved"></i>Resolved</span></div>
+  <div class="trend-chart">
+    {% for row in daily_rows %}
+    <div class="trend-row">
+      <span class="trend-date">{{ row.label }}</span>
+      <div class="trend-bars">
+        <div class="trend-track"><i class="created" style="width:{{ row.created_percent }}%"></i><b>{{ row.created }}</b></div>
+        <div class="trend-track"><i class="resolved" style="width:{{ row.resolved_percent }}%"></i><b>{{ row.resolved }}</b></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="report-two-col">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Current workload</h2><p>What still needs attention</p></div></div>
+    <div class="report-summary-list">
+      <a href="/tickets?view=active"><span>All active</span><strong>{{ report.active }}</strong></a>
+      <a href="/tickets?status=in_progress"><span>In progress</span><strong>{{ report.in_progress }}</strong></a>
+      <a href="/tickets?status=needs_review"><span>Needs review</span><strong>{{ report.needs_review }}</strong></a>
+      <a href="/tickets?priority=blocker&view=active"><span>Blockers</span><strong>{{ report.blockers }}</strong></a>
+      <a href="/tickets?ticket_type=suggestion&view=active"><span>Suggestions</span><strong>{{ report.suggestions }}</strong></a>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Recently resolved</h2><p>Latest completed work</p></div></div>
+    {% if recent_resolved %}<div class="resolved-report-list">{% for t in recent_resolved %}<a href="/tickets?view=completed#ticket-{{ t.id if t.id is defined else '' }}"><span class="ticket-id">{{ t.ticket_no }}</span><div><strong>{{ t.title }}</strong><small>{{ t.assignee_name or 'Unassigned' }} · {{ t.resolved_at }}</small></div><span class="badge {{ t.priority }}">{{ t.priority|title }}</span></a>{% endfor %}</div>{% else %}<div class="empty">No resolved tickets yet.</div>{% endif %}
+  </section>
+</div>
+{% endblock %}

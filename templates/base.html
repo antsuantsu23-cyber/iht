@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#a66d78">
+  <meta id="theme-color-meta" name="theme-color" content="#a66d78">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Feedback Hub">
@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body data-theme="{{ user.theme if user and user.theme else 'pink' }}" data-csrf="{{ csrf_token if user else '' }}">
 {% if user %}
 <div class="app-shell">
   <aside class="sidebar">
@@ -25,6 +25,7 @@
       <a href="/tickets?view=active" class="nav-link">Active Tickets</a>
       <a href="/tickets" class="nav-link">All Tickets</a>
       <a href="/tickets?view=completed" class="nav-link">Completed</a>
+      <a href="/reports" class="nav-link">Reports</a>
       <a href="/activity" class="nav-link">Activity</a>
       <a href="/source" target="_blank" class="nav-link">Source PDF</a>
       <a href="/account" class="nav-link">My Account</a>
@@ -39,7 +40,17 @@
   <main class="main">
     <header class="topbar">
       <div>{% block eyebrow %}Team Feedback Hub{% endblock %}</div>
-      <div class="topbar-actions"><button id="install-app-top" class="button" type="button" hidden>Install app</button><a class="button primary" href="/tickets/new">+ Add Feedback</a></div>
+      <div class="topbar-actions">
+        <label class="theme-quick-picker" title="Change interface color">
+          <span>Theme</span>
+          <select data-theme-picker aria-label="Interface theme">
+            {% for value,label in theme_choices %}<option value="{{ value }}" {% if user.theme==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <a class="button subtle account-button" href="/account">Account</a>
+        <button id="install-app-top" class="button" type="button" hidden>Install app</button>
+        <a class="button primary" href="/tickets/new">+ Add Feedback</a>
+      </div>
     </header>
     <div class="content">{% block content %}{% endblock %}</div>
   </main>

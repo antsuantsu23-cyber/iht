@@ -2,10 +2,11 @@
 {% block title %}My Account · Feedback Hub{% endblock %}
 {% block eyebrow %}My Account{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>My account</h1><p>Manage your sign-in password.</p></div></div>
-<div class="account-grid">
+<div class="page-head"><div><h1>My account</h1><p>Change your password and choose how the interface looks for your account.</p></div></div>
+<div class="account-grid account-grid-wide">
 <section class="panel form-card narrow-card">
   <h2>Change password</h2>
+  <p class="section-copy">Use your current password to create a new one. Your new password must contain at least 12 characters.</p>
   {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
   {% if success %}<div class="alert success-alert">{{ success }}</div>{% endif %}
   <form method="post" action="/account/password" class="stack">
@@ -16,6 +17,19 @@
     <button class="button primary">Change password</button>
   </form>
 </section>
-<section class="panel section-card"><h2>Account</h2><div class="meta-grid"><div><span>Name</span><strong>{{user.name}}</strong></div><div><span>Email</span><strong>{{user.email}}</strong></div><div><span>Role</span><strong>{{user.role|replace('_',' ')|title}}</strong></div></div></section>
+<section class="panel form-card theme-account-card">
+  <h2>Interface color</h2>
+  <p class="section-copy">Your choice is saved to your user account, so you can use the color you prefer without changing it for the rest of the team.</p>
+  <div class="theme-choice-grid">
+    {% for value,label in theme_choices %}
+    <button type="button" class="theme-choice-card {% if user.theme==value %}selected{% endif %}" data-theme-card="{{ value }}">
+      <span class="theme-preview theme-preview-{{ value }}"><i></i><i></i><i></i></span>
+      <strong>{{ label }}</strong>
+      <span>{% if value=='pink' %}Soft nude pink{% elif value=='white' %}Clean light interface{% else %}Dark interface{% endif %}</span>
+    </button>
+    {% endfor %}
+  </div>
+</section>
+<section class="panel section-card account-summary"><h2>Account</h2><div class="meta-grid"><div><span>Name</span><strong>{{user.name}}</strong></div><div><span>Email</span><strong>{{user.email}}</strong></div><div><span>Role</span><strong>{{user.role|replace('_',' ')|title}}</strong></div></div></section>
 </div>
 {% endblock %}
