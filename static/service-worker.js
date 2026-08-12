@@ -1,4 +1,4 @@
-const CACHE = 'feedback-hub-shell-v1';
+const CACHE = 'feedback-hub-shell-v4';
 const SHELL = [
   '/static/style.css',
   '/static/app.js',
