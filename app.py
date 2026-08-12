@@ -376,6 +376,11 @@ def init_db():
     if conn.execute("SELECT COUNT(*) FROM tickets").fetchone()[0] == 0 and SOURCE_PDF.exists():
         import_source_pdf(conn)
 
+    # Backfill screenshots embedded in the original source PDF. This is safe to
+    # run on every startup because imported attachments use deterministic names.
+    if SOURCE_PDF.exists():
+        import_source_images(conn)
+
     conn.close()
 
 
@@ -518,6 +523,84 @@ def import_source_pdf(conn: sqlite3.Connection):
             conn.execute("INSERT INTO links (ticket_id,label,url,created_by,created_at) VALUES (?,?,?,?,?)", (tid, "Source link" if idx == 1 else f"Source link {idx}", url, submitter, created))
         conn.execute("INSERT INTO activity (ticket_id,user_id,action,details,created_at) VALUES (?,?,?,?,?)", (tid, submitter, "Imported", f"Imported from ThingsToDo PDF, page(s) {', '.join(map(str, rec['pages']))}", created))
     conn.commit()
+
+
+def import_source_images(conn: sqlite3.Connection) -> None:
+    """Import screenshots embedded in the source PDF into their ticket records.
+
+    Google Docs/PDF exports do not retain a reliable object-to-ticket identifier.
+    We therefore associate each embedded image with ticket records whose
+    ``source_page`` includes the same PDF page. If multiple tickets share a page,
+    the source screenshot is intentionally visible on each of those tickets.
+    Deterministic stored names make the migration idempotent.
+    """
+    if not SOURCE_PDF.exists():
+        return
+
+    page_to_tickets: dict[int, list[tuple[int, Optional[int]]]] = {}
+    for row in conn.execute("SELECT id, source_page, submitted_by FROM tickets WHERE COALESCE(source_page,'') <> ''").fetchall():
+        for raw in re.findall(r"\d+", row["source_page"] or ""):
+            page_num = int(raw)
+            page_to_tickets.setdefault(page_num, []).append((row["id"], row["submitted_by"]))
+
+    if not page_to_tickets:
+        return
+
+    try:
+        reader = PdfReader(str(SOURCE_PDF))
+    except Exception:
+        return
+
+    mime_by_ext = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif", ".tif": "image/tiff", ".tiff": "image/tiff",
+    }
+
+    imported_counts: dict[int, int] = {}
+    for page_num, ticket_refs in page_to_tickets.items():
+        if page_num < 1 or page_num > len(reader.pages):
+            continue
+        try:
+            images = list(reader.pages[page_num - 1].images)
+        except Exception:
+            images = []
+        for image_index, image in enumerate(images, 1):
+            data = getattr(image, "data", b"") or b""
+            # Ignore tiny decorative PDF objects; source screenshots are normally
+            # much larger, while this still preserves smaller cropped evidence.
+            if len(data) < 12_000:
+                continue
+            original_name = Path(getattr(image, "name", "") or f"image-{image_index}.png").name
+            ext = Path(original_name).suffix.lower()
+            if ext not in mime_by_ext:
+                ext = ".png"
+            digest = hashlib.sha256(data).hexdigest()[:14]
+            stored = f"source_p{page_num}_img{image_index}_{digest}{ext}"
+            target = UPLOAD_DIR / stored
+            if not target.exists():
+                target.write_bytes(data)
+            display_name = f"Source screenshot · page {page_num} · {image_index}{ext}"
+            content_type = mime_by_ext.get(ext, "image/png")
+            for ticket_id, creator_id in ticket_refs:
+                exists = conn.execute(
+                    "SELECT 1 FROM attachments WHERE ticket_id=? AND stored_name=?",
+                    (ticket_id, stored),
+                ).fetchone()
+                if exists:
+                    continue
+                conn.execute(
+                    "INSERT INTO attachments(ticket_id,filename,stored_name,content_type,created_by,created_at) VALUES(?,?,?,?,?,?)",
+                    (ticket_id, display_name, stored, content_type, creator_id, now()),
+                )
+                imported_counts[ticket_id] = imported_counts.get(ticket_id, 0) + 1
+
+    for ticket_id, count in imported_counts.items():
+        conn.execute(
+            "INSERT INTO activity(ticket_id,user_id,action,details,created_at) VALUES(?,?,?,?,?)",
+            (ticket_id, None, "Imported source evidence", f"Added {count} screenshot(s) from the source PDF.", now()),
+        )
+    if imported_counts:
+        conn.commit()
 
 
 def current_user(request: Request):
@@ -707,7 +790,9 @@ def ticket_list(request: Request, q: str = "", status: str = "", priority: str =
         for row in conn.execute(f"SELECT id,ticket_id,label,url FROM links WHERE ticket_id IN ({placeholders}) ORDER BY id", ticket_ids).fetchall():
             links_by_ticket.setdefault(row["ticket_id"], []).append(dict(row))
         for row in conn.execute(f"SELECT id,ticket_id,filename,content_type FROM attachments WHERE ticket_id IN ({placeholders}) ORDER BY id DESC", ticket_ids).fetchall():
-            attachments_by_ticket.setdefault(row["ticket_id"], []).append(dict(row))
+            item = dict(row)
+            item["is_image"] = (item.get("content_type") or "").startswith("image/")
+            attachments_by_ticket.setdefault(row["ticket_id"], []).append(item)
         for row in conn.execute(f"""SELECT c.id,c.ticket_id,c.body,c.created_at,u.name user_name
             FROM comments c JOIN users u ON c.user_id=u.id
             WHERE c.ticket_id IN ({placeholders}) ORDER BY c.id""", ticket_ids).fetchall():
@@ -950,6 +1035,23 @@ def download_attachment(request: Request, attachment_id: int):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type=item["content_type"] or "application/octet-stream", filename=item["filename"])
+
+@app.get("/attachments/{attachment_id}/preview")
+def preview_attachment(request: Request, attachment_id: int):
+    require_user(request)
+    conn = db()
+    item = conn.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+    conn.close()
+    if not item:
+        raise HTTPException(404)
+    content_type = item["content_type"] or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(404)
+    path = UPLOAD_DIR / item["stored_name"]
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=content_type)
+
 
 @app.get("/users", response_class=HTMLResponse)
 def users_page(request: Request):
