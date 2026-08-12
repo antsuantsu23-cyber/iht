@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Tickets · Feedback Hub{% endblock %}
+{% block eyebrow %}Tickets{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{% if filters.view=='mine' %}My tasks{% elif filters.view=='completed' %}Completed tickets{% elif filters.view=='active' %}Active tickets{% else %}All tickets{% endif %}</h1><p>{{ tickets|length }} ticket{{ '' if tickets|length == 1 else 's' }} shown</p></div></div>
+<form class="filters panel" method="get">
+  <input type="hidden" name="view" value="{{ filters.view }}">
+  <input name="q" placeholder="Search ticket, title, notes…" value="{{ filters.q }}">
+  <select name="status"><option value="">All statuses</option>{% for v,l in status_choices %}<option value="{{v}}" {% if filters.status==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select>
+  <select name="priority"><option value="">All priorities</option>{% for v,l in priority_choices %}<option value="{{v}}" {% if filters.priority==v %}selected{% endif %}>{{l}}</option>{% endfor %}</select>
+  <select name="assignee"><option value="">All assignees</option>{% for u in users %}<option value="{{u.id}}" {% if filters.assignee==u.id|string %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select>
+  <select name="area"><option value="">All areas</option>{% for a in areas %}<option value="{{a}}" {% if filters.area==a %}selected{% endif %}>{{a}}</option>{% endfor %}</select>
+  <button class="button">Filter</button>
+</form>
+<div class="panel table-panel">
+<table class="data-table"><thead><tr><th>Ticket</th><th>Feedback</th><th>Status</th><th>Priority</th><th>Area</th><th>Assigned</th><th>Updated</th></tr></thead><tbody>
+{% for t in tickets %}<tr onclick="location.href='/tickets/{{t.id}}'">
+<td><span class="ticket-id">{{t.ticket_no}}</span></td><td><strong>{{t.title}}</strong><small>{{t.description[:120]}}{{'…' if t.description|length > 120 else ''}}</small></td>
+<td><span class="badge status-{{t.status}}">{{t.status|replace('_',' ')|title}}</span></td><td><span class="badge {{t.priority}}">{{t.priority|title}}</span></td><td>{{t.area}}</td><td>{{t.assignee_name or 'Unassigned'}}</td><td>{{t.updated_at[:10]}}</td>
+</tr>{% else %}<tr><td colspan="7"><div class="empty">No matching tickets.</div></td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

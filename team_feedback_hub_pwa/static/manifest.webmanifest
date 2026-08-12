@@ -1,0 +1,14 @@
+{
+  "name": "Team Feedback Hub",
+  "short_name": "Feedback Hub",
+  "description": "Shared feedback, task assignment, evidence, comments, and technical investigation for your team.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ee",
+  "theme_color": "#183a37",
+  "icons": [
+    {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
